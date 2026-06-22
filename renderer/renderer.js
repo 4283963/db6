@@ -10,6 +10,90 @@ const serverStatusEl = $('serverStatus');
 const serverAddrEl = $('serverAddr');
 const downloadDirEl = $('downloadDir');
 
+const progressModal = $('progressModal');
+const pmIcon = $('pmIcon');
+const pmTitle = $('pmTitle');
+const pmFileName = $('pmFileName');
+const pmProgressBar = $('pmProgressBar');
+const pmPercent = $('pmPercent');
+const pmSize = $('pmSize');
+const pmMessage = $('pmMessage');
+const pmCloseBtn = $('pmCloseBtn');
+
+let activeModalTaskId = null;
+let modalCloseTimer = null;
+
+const showModal = (taskId, fileName, direction) => {
+  if (modalCloseTimer) {
+    clearTimeout(modalCloseTimer);
+    modalCloseTimer = null;
+  }
+
+  activeModalTaskId = taskId;
+
+  const isSend = direction === 'send';
+  pmIcon.textContent = isSend ? '📤' : '📥';
+  pmTitle.textContent = isSend ? '正在发送文件' : '正在接收文件';
+  pmFileName.textContent = fileName;
+  pmProgressBar.style.width = '0%';
+  pmProgressBar.classList.remove('success', 'error');
+  pmPercent.textContent = '0%';
+  pmPercent.classList.remove('success', 'error');
+  pmSize.textContent = `0 B / 0 B`;
+  pmMessage.textContent = '传输中...';
+  pmMessage.classList.remove('success', 'error');
+  pmCloseBtn.hidden = true;
+  pmCloseBtn.classList.remove('success', 'error');
+
+  progressModal.classList.add('show');
+  progressModal.setAttribute('aria-hidden', 'false');
+};
+
+const updateModalProgress = (current, total) => {
+  if (current === undefined || total === undefined || total <= 0) return;
+  const percent = Math.min(100, Math.round((current / total) * 100));
+  pmProgressBar.style.width = `${percent}%`;
+  pmPercent.textContent = `${percent}%`;
+  pmSize.textContent = `${formatSize(current)} / ${formatSize(total)}`;
+};
+
+const finishModal = (success, message, isSend = true) => {
+  if (success) {
+    pmProgressBar.style.width = '100%';
+    pmProgressBar.classList.add('success');
+    pmPercent.textContent = '100%';
+    pmPercent.classList.add('success');
+    pmMessage.textContent = message || (isSend ? '✅ 发送成功！' : '✅ 接收成功！');
+    pmMessage.classList.add('success');
+    pmCloseBtn.textContent = '知道了';
+    pmCloseBtn.classList.add('success');
+  } else {
+    pmProgressBar.classList.add('error');
+    pmPercent.classList.add('error');
+    pmMessage.textContent = `❌ ${message || '传输失败'}`;
+    pmMessage.classList.add('error');
+    pmCloseBtn.textContent = '关闭';
+    pmCloseBtn.classList.add('error');
+  }
+  pmCloseBtn.hidden = false;
+
+  modalCloseTimer = setTimeout(() => {
+    hideModal();
+  }, 2500);
+};
+
+const hideModal = () => {
+  if (modalCloseTimer) {
+    clearTimeout(modalCloseTimer);
+    modalCloseTimer = null;
+  }
+  progressModal.classList.remove('show');
+  progressModal.setAttribute('aria-hidden', 'true');
+  activeModalTaskId = null;
+};
+
+pmCloseBtn.addEventListener('click', hideModal);
+
 const tasks = new Map();
 
 const formatSize = (bytes) => {
@@ -241,6 +325,7 @@ const init = async () => {
         direction: 'send',
         peer: data.target
       });
+      showModal(id, name, 'send');
     }
   });
 
@@ -249,6 +334,9 @@ const init = async () => {
       sent: data.sent,
       total: data.total
     });
+    if (activeModalTaskId === data.taskId) {
+      updateModalProgress(data.sent, data.total);
+    }
   });
 
   window.lanTransfer.onSendComplete((data) => {
@@ -256,6 +344,10 @@ const init = async () => {
       status: 'success',
       percent: 100
     });
+    if (activeModalTaskId === data.taskId) {
+      updateModalProgress(data.total || 1, data.total || 1);
+      finishModal(true, null, true);
+    }
   });
 
   window.lanTransfer.onSendError((data) => {
@@ -263,6 +355,9 @@ const init = async () => {
       status: 'error',
       error: data.error
     });
+    if (activeModalTaskId === data.taskId) {
+      finishModal(false, data.error, true);
+    }
   });
 
   window.lanTransfer.onReceiveProgress((data) => {
@@ -277,11 +372,15 @@ const init = async () => {
         direction: 'receive',
         peer: data.from
       });
+      showModal(id, data.fileName, 'receive');
     }
     updateTask(id, {
       received: data.received,
       total: data.total
     });
+    if (activeModalTaskId === id) {
+      updateModalProgress(data.received, data.total);
+    }
   });
 
   window.lanTransfer.onReceiveComplete((data) => {
@@ -291,6 +390,10 @@ const init = async () => {
       percent: 100,
       savePath: data.savePath
     });
+    if (activeModalTaskId === id) {
+      updateModalProgress(data.fileSize, data.fileSize);
+      finishModal(true, null, false);
+    }
   });
 
   window.lanTransfer.onReceiveError((data) => {
@@ -299,6 +402,9 @@ const init = async () => {
       status: 'error',
       error: data.error
     });
+    if (activeModalTaskId === id) {
+      finishModal(false, data.error, false);
+    }
   });
 
   window.lanTransfer.onServerError((data) => {

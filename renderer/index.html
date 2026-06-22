@@ -64,6 +64,30 @@
     </footer>
   </div>
 
+  <div id="progressModal" class="progress-modal" aria-hidden="true">
+    <div class="progress-modal-overlay"></div>
+    <div class="progress-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pmTitle">
+      <div class="progress-modal-header">
+        <div class="pm-icon" id="pmIcon">📤</div>
+        <div class="pm-title" id="pmTitle">正在发送文件</div>
+      </div>
+      <div class="progress-modal-body">
+        <div class="pm-file-name" id="pmFileName">—</div>
+        <div class="pm-progress-wrap">
+          <div class="pm-progress-bar" id="pmProgressBar" style="width: 0%"></div>
+        </div>
+        <div class="pm-progress-meta">
+          <span class="pm-percent" id="pmPercent">0%</span>
+          <span class="pm-size" id="pmSize">0 B / 0 B</span>
+        </div>
+      </div>
+      <div class="progress-modal-footer" id="pmFooter">
+        <div class="pm-message" id="pmMessage">传输中...</div>
+        <button id="pmCloseBtn" class="pm-close-btn" hidden>知道了</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 </html>
