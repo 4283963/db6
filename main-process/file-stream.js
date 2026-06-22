@@ -23,33 +23,11 @@ const generateUniquePath = (dir, fileName) => {
   return result;
 };
 
-const createFileReadStream = (filePath, callbacks = {}) => {
-  const { onProgress, onComplete, onError } = callbacks;
+const createFileReadStream = (filePath) => {
   const stats = fs.statSync(filePath);
   const fileSize = stats.size;
   const fileName = path.basename(filePath);
   const readStream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 });
-
-  let bytesSent = 0;
-
-  readStream.on('data', (chunk) => {
-    bytesSent += chunk.length;
-    if (onProgress) {
-      onProgress(bytesSent, fileSize);
-    }
-  });
-
-  readStream.on('end', () => {
-    if (onComplete) {
-      onComplete();
-    }
-  });
-
-  readStream.on('error', (err) => {
-    if (onError) {
-      onError(err);
-    }
-  });
 
   return {
     stream: readStream,
@@ -65,25 +43,38 @@ const receiveFileStream = (fileName, fileSize, callbacks = {}) => {
   const writeStream = fs.createWriteStream(savePath, { highWaterMark: 64 * 1024 });
 
   let bytesReceived = 0;
+  let progressTimer = null;
 
-  writeStream.on('drain', () => {});
+  progressTimer = setInterval(() => {
+    if (onProgress && bytesReceived > 0) {
+      onProgress(Math.min(bytesReceived, fileSize));
+    }
+  }, 200);
 
   const originalWrite = writeStream.write.bind(writeStream);
   writeStream.write = (chunk, encoding, cb) => {
     bytesReceived += chunk.length;
-    if (onProgress) {
-      onProgress(Math.min(bytesReceived, fileSize));
-    }
     return originalWrite(chunk, encoding, cb);
   };
 
   writeStream.on('finish', () => {
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
+    if (onProgress) {
+      onProgress(fileSize);
+    }
     if (onComplete) {
       onComplete(savePath);
     }
   });
 
   writeStream.on('error', (err) => {
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
     if (fs.existsSync(savePath)) {
       try { fs.unlinkSync(savePath); } catch (e) {}
     }

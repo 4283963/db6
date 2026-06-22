@@ -10,7 +10,15 @@ const sendFile = (targetIP, filePath) => {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let fileStream = null;
+    let progressTimer = null;
     let taskId = Date.now().toString();
+
+    const cleanup = () => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+    };
 
     clientEvents.emit('send-start', {
       taskId,
@@ -19,47 +27,61 @@ const sendFile = (targetIP, filePath) => {
     });
 
     socket.connect(PORT, targetIP, () => {
-      const fileInfo = createFileReadStream(filePath, {
-        onProgress: (sent, total) => {
-          clientEvents.emit('send-progress', {
-            taskId,
-            sent,
-            total,
-            target: targetIP
-          });
-        },
-        onComplete: () => {
-          clientEvents.emit('send-complete', {
-            taskId,
-            target: targetIP,
-            filePath
-          });
-          socket.end();
-          resolve({ taskId, success: true });
-        },
-        onError: (err) => {
-          clientEvents.emit('send-error', {
-            taskId,
-            target: targetIP,
-            error: err.message
-          });
-          socket.destroy();
-          reject(err);
-        }
-      });
+      const fileInfo = createFileReadStream(filePath);
+      const { stream: readStream, name: fileName, size: fileSize } = fileInfo;
+      fileStream = readStream;
 
       const header = JSON.stringify({
-        name: fileInfo.name,
-        size: fileInfo.size
+        name: fileName,
+        size: fileSize
       }) + HEADER_DELIMITER;
 
       socket.write(header);
 
-      fileStream = fileInfo.stream;
-      fileStream.pipe(socket);
+      progressTimer = setInterval(() => {
+        if (readStream.bytesRead !== undefined) {
+          clientEvents.emit('send-progress', {
+            taskId,
+            sent: readStream.bytesRead,
+            total: fileSize,
+            target: targetIP
+          });
+        }
+      }, 200);
+
+      readStream.pipe(socket);
+
+      readStream.on('end', () => {
+        cleanup();
+        clientEvents.emit('send-complete', {
+          taskId,
+          target: targetIP,
+          filePath
+        });
+        clientEvents.emit('send-progress', {
+          taskId,
+          sent: fileSize,
+          total: fileSize,
+          target: targetIP
+        });
+        socket.end();
+        resolve({ taskId, success: true });
+      });
+
+      readStream.on('error', (err) => {
+        cleanup();
+        clientEvents.emit('send-error', {
+          taskId,
+          target: targetIP,
+          error: err.message
+        });
+        socket.destroy();
+        reject(err);
+      });
     });
 
     socket.on('error', (err) => {
+      cleanup();
       clientEvents.emit('send-error', {
         taskId,
         target: targetIP,
@@ -69,6 +91,10 @@ const sendFile = (targetIP, filePath) => {
         fileStream.destroy();
       }
       reject(err);
+    });
+
+    socket.on('close', () => {
+      cleanup();
     });
   });
 };

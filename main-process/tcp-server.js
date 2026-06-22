@@ -40,6 +40,14 @@ const handleConnection = (socket) => {
   let totalReceived = 0;
   let fileSize = 0;
   let fileName = '';
+  let isPaused = false;
+
+  const resumeSocket = () => {
+    if (isPaused && !socket.destroyed) {
+      socket.resume();
+      isPaused = false;
+    }
+  };
 
   socket.on('data', (chunk) => {
     if (!headerParsed) {
@@ -84,9 +92,18 @@ const handleConnection = (socket) => {
             }
           });
 
+          fileReceiver.on('drain', resumeSocket);
+
           if (remainingData.length > 0) {
             totalReceived += remainingData.length;
-            fileReceiver.write(remainingData);
+            const canWrite = fileReceiver.write(remainingData);
+            if (!canWrite) {
+              socket.pause();
+              isPaused = true;
+            }
+            if (totalReceived >= fileSize) {
+              fileReceiver.end();
+            }
           }
         } else {
           socket.destroy();
@@ -94,7 +111,11 @@ const handleConnection = (socket) => {
       }
     } else {
       totalReceived += chunk.length;
-      fileReceiver.write(chunk);
+      const canWrite = fileReceiver.write(chunk);
+      if (!canWrite) {
+        socket.pause();
+        isPaused = true;
+      }
 
       if (totalReceived >= fileSize) {
         fileReceiver.end();
